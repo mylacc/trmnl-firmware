@@ -41,6 +41,7 @@ HttpHeaderList buildDisplayHeaders(const ApiDisplayInputs &inputs) {
   headers.push_back({"Height", String(inputs.displayHeight)});
 
   if (inputs.specialFunction != SF_NONE) headers.push_back({"special_function", "true"});
+  if (inputs.button.length() > 0) headers.push_back({"Button", inputs.button});
 
   return headers;
 }

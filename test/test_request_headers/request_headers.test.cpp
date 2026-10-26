@@ -150,6 +150,18 @@ void test_display_headers_special_function_present_when_set(void) {
   TEST_ASSERT_EQUAL_STRING("true", valueOf(headers, "special_function").c_str());
 }
 
+void test_display_headers_button_omitted_when_empty(void) {
+  auto headers = buildDisplayHeaders(makeDisplayInputs());
+  TEST_ASSERT_FALSE(has(headers, "Button"));
+}
+
+void test_display_headers_button_present_when_set(void) {
+  auto inputs = makeDisplayInputs();
+  inputs.button = "D2";
+  auto headers = buildDisplayHeaders(inputs);
+  TEST_ASSERT_EQUAL_STRING("D2", valueOf(headers, "Button").c_str());
+}
+
 void test_display_headers_panel_id_omitted_when_empty(void) {
   auto headers = buildDisplayHeaders(makeDisplayInputs());
   TEST_ASSERT_EQUAL_INT(-1, indexOf(headers, "Panel-Rev"));
@@ -242,6 +254,8 @@ void process() {
   RUN_TEST(test_display_headers_image_cached_reflects_input);
   RUN_TEST(test_display_headers_special_function_omitted_when_none);
   RUN_TEST(test_display_headers_special_function_present_when_set);
+  RUN_TEST(test_display_headers_button_omitted_when_empty);
+  RUN_TEST(test_display_headers_button_present_when_set);
   RUN_TEST(test_display_headers_panel_id_omitted_when_empty);
   RUN_TEST(test_display_headers_panel_id_present_when_set);
   RUN_TEST(test_display_headers_wifi_band_2_4);

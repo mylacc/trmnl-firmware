@@ -14,8 +14,18 @@
 #define FW_COMMIT ""
 #endif
 
+// Tide-charts build (OG DIY Kit only): the D1 and D2 buttons wake the board too, and the button
+// that woke it is sent to the server as a "Button" header. The suffix fits current_fw_version[10].
+#ifdef TIDE_BUTTONS
+#define FW_VERSION_SUFFIX "-t1"
+#define TIDE_PIN_D1       2 // XIAO ESP32-S3 D1, active low
+#define TIDE_PIN_D2       3 // XIAO ESP32-S3 D2, active low
+#else
+#define FW_VERSION_SUFFIX ""
+#endif
+
 // Compile-time firmware version string
-#define FW_VERSION_STRING    TOSTRING(FW_MAJOR_VERSION) "." TOSTRING(FW_MINOR_VERSION) "." TOSTRING(FW_PATCH_VERSION)
+#define FW_VERSION_STRING    TOSTRING(FW_MAJOR_VERSION) "." TOSTRING(FW_MINOR_VERSION) "." TOSTRING(FW_PATCH_VERSION) FW_VERSION_SUFFIX
 
 #define LOG_MAX_NOTES_NUMBER 10
 

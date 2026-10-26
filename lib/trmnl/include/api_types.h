@@ -85,6 +85,7 @@ struct ApiDisplayInputs {
   UsbStatus usbStatus;
   bool imageCached;
   int prevWakeTime;
+  String button; // button that woke the device ("D1", "D2", "D4"), empty otherwise; sent as "Button"
 };
 
 struct ApiLogInputs {

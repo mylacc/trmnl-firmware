@@ -28,6 +28,9 @@
 #include <stored_logs.h>
 #include <button.h>
 #include "api-client/submit_log.h"
+#ifdef TIDE_BUTTONS
+#include <driver/rtc_io.h>
+#endif
 #include <api-client/setup.h>
 #include <special_function.h>
 #include <refresh_interval.h>
@@ -66,6 +69,10 @@ void goToSleep(void);                         // sleep preparing
 static void goToSleepButtonOnly(void);               // sleep until button press, no timer
 static void submitStoredLogs(void);
 static void writeSpecialFunction(SPECIAL_FUNCTION function);
+#ifdef TIDE_BUTTONS
+static void tideEnableButtonWakeup(void);            // D1, D2 and D4 all wake the board
+static String tide_button;                           // button that woke the board, sent as "Button"
+#endif
 void showMessageWithLogo(MSG message_type);
 static void showMessageWithLogo(MSG message_type, String friendly_id, bool id, const char *fw_version, String message);
 static void showMessageWithLogo(MSG message_type, const ApiSetupResponse &apiResponse);
@@ -744,6 +751,16 @@ void bl_init(void)
                       wakeup_reason == ESP_SLEEP_WAKEUP_EXT0 ||
                       wakeup_reason == ESP_SLEEP_WAKEUP_EXT1);
   Log.info("%s [%d]: Wake reason: %d\r\n", __FILE__, __LINE__, (int)wakeup_reason);
+#ifdef TIDE_BUTTONS
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1)
+  {
+    uint64_t woke = esp_sleep_get_ext1_wakeup_status();
+    tide_button = (woke & (1ULL << TIDE_PIN_D1)) ? "D1" : (woke & (1ULL << TIDE_PIN_D2)) ? "D2" : "D4";
+    Log_info("Woken by button %s (ext1 status 0x%llx)", tide_button.c_str(), woke);
+    // D1 and D2 only pick a screen; press timing (double-click, holds) stays a D4 thing.
+    if (tide_button != "D4") gpio_wakeup = false;
+  }
+#endif
 
   Log_info("preferences start");
   bool res = preferences.begin("data", false);
@@ -1389,6 +1406,9 @@ ApiDisplayInputs loadApiDisplayInputs(Preferences &preferences)
   inputs.specialFunction = special_function;
   inputs.imageCached = bUsedCachedImage;
   inputs.prevWakeTime = iPrevWakeTime;
+#ifdef TIDE_BUTTONS
+  inputs.button = tide_button;
+#endif
   inputs.usbStatus = power().usbStatus();
   inputs.chargingStatus = power().chargingStatus();
 
@@ -2304,6 +2324,8 @@ void goToSleep(void)
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
 #ifdef BOARD_TRMNL_X
   esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_INTERRUPT, 0);
+#elif defined(TIDE_BUTTONS)
+  tideEnableButtonWakeup();
 #else
   esp_sleep_enable_ext0_wakeup((gpio_num_t)pDevice->interrupt_pin, 0);
 #endif
@@ -2343,6 +2365,8 @@ static void goToSleepButtonOnly(void)
 #elif CONFIG_IDF_TARGET_ESP32S3
 #ifdef BOARD_TRMNL_X
   esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_INTERRUPT, 0);
+#elif defined(TIDE_BUTTONS)
+  tideEnableButtonWakeup();
 #else
   esp_sleep_enable_ext0_wakeup((gpio_num_t)pDevice->interrupt_pin, 0);
 #endif
@@ -2355,6 +2379,24 @@ static void goToSleepButtonOnly(void)
 #endif
   esp_deep_sleep_start();
 }
+
+#ifdef TIDE_BUTTONS
+// ext0 can watch only one pin, so wake on ext1 instead: any of D1, D2 or D4 going low. The pull-ups
+// are RTC pull-ups, which need RTC_PERIPH powered in deep sleep (ext0 kept it powered anyway).
+static void tideEnableButtonWakeup(void)
+{
+  const gpio_num_t pins[] = {(gpio_num_t)TIDE_PIN_D1, (gpio_num_t)TIDE_PIN_D2, (gpio_num_t)pDevice->interrupt_pin};
+  uint64_t mask = 0;
+  for (gpio_num_t pin : pins) mask |= 1ULL << pin;
+  esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+  for (gpio_num_t pin : pins)
+  {
+    rtc_gpio_pullup_en(pin);
+    rtc_gpio_pulldown_dis(pin);
+  }
+}
+#endif
 void config_gpio_for_lp() {
 
 #ifdef BOARD_TRMNL_X
