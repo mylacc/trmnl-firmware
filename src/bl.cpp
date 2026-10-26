@@ -30,6 +30,8 @@
 #include "api-client/submit_log.h"
 #ifdef TIDE_BUTTONS
 #include <driver/rtc_io.h>
+#include <tide_device.h>
+#include <tide_views.h>
 #endif
 #include <api-client/setup.h>
 #include <special_function.h>
@@ -72,6 +74,7 @@ static void writeSpecialFunction(SPECIAL_FUNCTION function);
 #ifdef TIDE_BUTTONS
 static void tideEnableButtonWakeup(void);            // D1, D2 and D4 all wake the board
 static String tide_button;                           // button that woke the board, sent as "Button"
+static int tide_key_view = -1;                       // screen a plain key press asks for, -1 if none
 #endif
 void showMessageWithLogo(MSG message_type);
 static void showMessageWithLogo(MSG message_type, String friendly_id, bool id, const char *fw_version, String message);
@@ -758,7 +761,11 @@ void bl_init(void)
     tide_button = (woke & (1ULL << TIDE_PIN_D1)) ? "D1" : (woke & (1ULL << TIDE_PIN_D2)) ? "D2" : "D4";
     Log_info("Woken by button %s (ext1 status 0x%llx)", tide_button.c_str(), woke);
     // D1 and D2 only pick a screen; press timing (double-click, holds) stays a D4 thing.
-    if (tide_button != "D4") gpio_wakeup = false;
+    if (tide_button != "D4")
+    {
+      gpio_wakeup = false;
+      tide_key_view = tideViewForButton(tide_button);
+    }
   }
 #endif
 
@@ -793,6 +800,9 @@ void bl_init(void)
       break;
     case ShortPress:
     case NoAction:
+#ifdef TIDE_BUTTONS
+      if (tide_button == "D4") tide_key_view = tideViewForButton(tide_button);
+#endif
       break;
     case SoftReset:
       resetDeviceCredentials();
@@ -917,6 +927,15 @@ void bl_init(void)
 
   // Mount SPIFFS
   filesystem_init();
+
+#ifdef TIDE_BUTTONS
+  // A plain key press shows the screen stored for that key, without Wi-Fi, and goes back to sleep.
+  if (tide_key_view >= 0 && tideShowStored(preferences, tide_key_view))
+  {
+    display_sleep();
+    goToSleep();
+  }
+#endif
 #endif // !BOARD_TRMNL_X
 
 #ifdef BOARD_TRMNL_X
@@ -948,6 +967,9 @@ void bl_init(void)
       showMessageWithLogo(NONE);
     }
 #else
+#ifdef TIDE_BUTTONS
+    if (tide_key_view < 0) // a key press keeps its screen up while it fetches the new one
+#endif
     display_show_image(storedLogoOrDefault(1), DEFAULT_IMAGE_SIZE, false, true);
 #endif // BOARD_TRMNL_X
     // Force the display to show the current playlist image after the loading screen
@@ -1558,6 +1580,9 @@ static https_request_err_e downloadAndShow()
 
   submitStoredLogs();
 
+#ifdef TIDE_BUTTONS
+  tideFetchScreens(preferences, apiDisplayResult.response.tide); // about hourly; needs Wi-Fi
+#endif
   WiFi.disconnect(true); // no need for WiFi, save power starting here
   Log.info("%s [%d]: Received successfully; WiFi off.\r\n", __FILE__, __LINE__);
 
@@ -1635,6 +1660,9 @@ static https_request_err_e downloadAndShow()
   {
     if (!filesystem_file_exists("/current.png"))
     {
+#ifdef TIDE_BUTTONS
+      tideNewCurrent(preferences, apiDisplayResult.response.tide);
+#endif
       writeImageToFile("/current.bmp", buffer, content_size);
     }
     Log.info("Free heap at before display - %d", ESP.getMaxAllocHeap());

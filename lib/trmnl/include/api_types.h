@@ -47,6 +47,7 @@ struct ApiDisplayResponse {
   SPECIAL_FUNCTION special_function;
   String action;
   String touchbar_mode;
+  String tide; // the tide-charts "tide" object as JSON, empty if absent (see tide_views.h)
 };
 
 struct ApiDisplayInputs {

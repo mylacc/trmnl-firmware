@@ -68,6 +68,13 @@ void test_parseResponse_apiDisplay_treats_unknown_sf_as_none(void) {
   TEST_ASSERT_EQUAL(parsed.special_function, SPECIAL_FUNCTION::SF_NONE);
 }
 
+void test_parseResponse_apiDisplay_keeps_tide_object_as_json(void) {
+  String input = "{\"status\":0,\"image_url\":\"http://example.com/foo.bmp\",\"tide\":{\"view\":1,\"expires\":5}}";
+  TEST_ASSERT_EQUAL_STRING("{\"view\":1,\"expires\":5}", parseResponse_apiDisplay(input).tide.c_str());
+  String without = "{\"status\":0,\"image_url\":\"http://example.com/foo.bmp\"}";
+  TEST_ASSERT_EQUAL_STRING("", parseResponse_apiDisplay(without).tide.c_str());
+}
+
 void setUp(void) {
   // set stuff up here
 }
@@ -82,6 +89,7 @@ void process() {
   RUN_TEST(test_parseResponse_apiDisplay_deserializationError);
   RUN_TEST(test_parseResponse_apiDisplay_treats_unknown_sf_as_none);
   RUN_TEST(test_parseResponse_apiDisplay_missing_fields);
+  RUN_TEST(test_parseResponse_apiDisplay_keeps_tide_object_as_json);
   UNITY_END();
 }
 

@@ -17,7 +17,7 @@
 // Tide-charts build (OG DIY Kit only): the D1 and D2 buttons wake the board too, and the button
 // that woke it is sent to the server as a "Button" header. The suffix fits current_fw_version[10].
 #ifdef TIDE_BUTTONS
-#define FW_VERSION_SUFFIX "-t1"
+#define FW_VERSION_SUFFIX "-t2"
 #define TIDE_PIN_D1       2 // XIAO ESP32-S3 D1, active low
 #define TIDE_PIN_D2       3 // XIAO ESP32-S3 D2, active low
 #else
