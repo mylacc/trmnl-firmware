@@ -35,6 +35,10 @@ static ButtonPressResult classify_press_duration(unsigned long duration) {
 }
 
 static ButtonPressResult wait_for_second_press(unsigned long start_time) {
+#ifdef TIDE_BUTTONS
+  // Each key picks its own screen, so there's no double-click to wait for; holds still count.
+  return ShortPress;
+#endif
   auto release_time = millis();
 
   while (millis() - release_time < BUTTON_DOUBLE_CLICK_WINDOW) {

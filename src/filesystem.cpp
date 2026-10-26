@@ -261,6 +261,23 @@ bool filesystem_file_rename(const char *old_name, const char *new_name) {
   }
 }
 
+size_t filesystem_total_bytes(void) { return FS.totalBytes(); }
+
+size_t filesystem_used_bytes(void) { return FS.usedBytes(); }
+
+fs::File filesystem_open_for_write(const char *name) { return FS.open(name, FILE_WRITE); }
+
+String filesystem_file_list(void) {
+  String out;
+  File rootDir = FS.open("/");
+  while (File file = rootDir.openNextFile()) {
+    if (out.length()) out += ", ";
+    out += String(file.name()) + " " + String((unsigned)file.size());
+  }
+  rootDir.close();
+  return out;
+}
+
 void list_files() {
   Log_info("Filesystem Usage: %d/%d", FS.usedBytes(), FS.totalBytes());
   File rootDir = FS.open("/");

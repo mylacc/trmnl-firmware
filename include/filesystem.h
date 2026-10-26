@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <FS.h>
 
 /**
  * @brief Function to delete old versions of plugin images (by comparing the timestamp)
@@ -112,6 +113,24 @@ bool filesystem_file_delete(const char *name);
  * @return result - true if success; false - if failed
  */
 bool filesystem_file_rename(const char *old_name, const char *new_name);
+
+/**
+ * @brief Size of the mounted filesystem and how much of it is in use, in bytes
+ */
+size_t filesystem_total_bytes(void);
+size_t filesystem_used_bytes(void);
+
+/**
+ * @brief Open a file for writing, replacing what it held
+ * @param name filename
+ * @return the open file; false when it could not be opened
+ */
+fs::File filesystem_open_for_write(const char *name);
+
+/**
+ * @brief Every file as "name size", comma separated, for logs
+ */
+String filesystem_file_list(void);
 
 /**
  * @brief Function to extract the timestamp from a filename

@@ -968,7 +968,11 @@ void bl_init(void)
     }
 #else
 #ifdef TIDE_BUTTONS
-    if (tide_key_view < 0) // a key press keeps its screen up while it fetches the new one
+    // A key press, or RESET with a screen to come back to, keeps the old screen up while the new
+    // one is fetched. The first draw after a reset is a full refresh anyway (iUpdateCount restarts
+    // at 0), so the panel comes out clean without the logo in between.
+    if (tide_key_view < 0 && !(wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED && WifiCaptivePortal.isSaved() &&
+                               filesystem_file_exists("/current.bmp")))
 #endif
     display_show_image(storedLogoOrDefault(1), DEFAULT_IMAGE_SIZE, false, true);
 #endif // BOARD_TRMNL_X

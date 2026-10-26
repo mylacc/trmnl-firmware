@@ -1,7 +1,6 @@
 #ifdef TIDE_BUTTONS
 #include <Arduino.h>
 #include <HTTPClient.h>
-#include <LittleFS.h>
 #include <display.h>
 #include <filesystem.h>
 #include <globals.h>
@@ -12,6 +11,9 @@
 #include <tide_views.h>
 #include <trmnl_log.h>
 
+// Files go through filesystem.cpp, which mounts SPIFFS on this board. SPIFFS can't rename onto an
+// existing file, and on its 256 KB partition about three 48 KB screens fit comfortably, so at most
+// three are kept: /current.bmp (the screen that is up) and the other two screens' files.
 #define CURRENT_FILE "/current.bmp"
 
 // NVS keys (Preferences "data" namespace; at most 15 characters)
@@ -21,20 +23,34 @@ static const char *KEY_EXP[TIDE_VIEWS] = {"tide_exp0", "tide_exp1", "tide_exp2"}
 static const char *KEY_RATE[TIDE_VIEWS] = {"tide_rate0", "tide_rate1", "tide_rate2"};
 static const char *KEY_CACHE_TRY = "tide_cache_try"; // last download tried, whether or not it worked
 
-// Keep the screen being replaced as its file, unless that file is newer (just downloaded).
-static void keepCurrent(Preferences &prefs, int cur) {
-  const char *curPath = tideSlotPath(cur);
-  uint32_t curExpires = prefs.getUInt(KEY_CUR_EXP, 0);
-  if (!curPath || prefs.getUInt(KEY_EXP[cur], 0) >= curExpires) return;
-  if (LittleFS.exists(CURRENT_FILE) && LittleFS.rename(CURRENT_FILE, curPath)) prefs.putUInt(KEY_EXP[cur], curExpires);
-}
-
 // NVS entries wear the flash on every write, so only write what changed.
 static void putUInt(Preferences &prefs, const char *key, uint32_t value) {
   if (!prefs.isKey(key) || prefs.getUInt(key, 0) != value) prefs.putUInt(key, value);
 }
 static void putInt(Preferences &prefs, const char *key, int32_t value) {
   if (!prefs.isKey(key) || prefs.getInt(key, -1) != value) prefs.putInt(key, value);
+}
+
+// The screen in /current.bmp is about to be replaced: it becomes its screen's file unless that
+// file is newer (fetched a moment ago), in which case it's simply removed. Either way /current.bmp
+// is gone afterwards.
+static void keepCurrent(Preferences &prefs, int cur) {
+  if (!filesystem_file_exists(CURRENT_FILE)) return;
+  const char *curPath = tideSlotPath(cur);
+  uint32_t curExpires = prefs.getUInt(KEY_CUR_EXP, 0);
+  if (curPath && prefs.getUInt(KEY_EXP[cur], 0) < curExpires) {
+    filesystem_file_delete(curPath);
+    if (filesystem_file_rename(CURRENT_FILE, curPath)) {
+      putUInt(prefs, KEY_EXP[cur], curExpires);
+      return;
+    }
+  }
+  filesystem_file_delete(CURRENT_FILE);
+}
+
+static void logSpace(const char *what, const char *path) {
+  Log_error("tide: %s %s; %u of %u bytes used; files: %s", what, path, (unsigned)filesystem_used_bytes(),
+            (unsigned)filesystem_total_bytes(), filesystem_file_list().c_str());
 }
 
 bool tideShowStored(Preferences &prefs, int view) {
@@ -53,19 +69,20 @@ bool tideShowStored(Preferences &prefs, int view) {
     return true;
   }
 
+  const char *path = tideSlotPath(view);
   uint8_t *image = nullptr;
-  size_t size = filesystem_read_and_allocate(tideSlotPath(view), &image);
+  size_t size = filesystem_read_and_allocate(path, &image);
   if (!tideImageUsable(image, size, now, prefs.getUInt(KEY_EXP[view], 0))) {
     Log_info("tide: no usable stored screen %d (size %u), going online", view, (unsigned)size);
     free(image);
     return false;
   }
 
-  // The screen being replaced becomes its file again, so its key keeps working without Wi-Fi.
+  // The screen being replaced becomes its file again, so its key keeps working without Wi-Fi; the
+  // stored screen then becomes /current.bmp by a rename rather than a 48 KB rewrite.
   keepCurrent(prefs, cur);
-  // Write before drawing: display_show_image() flips the bitmap in place.
-  writeImageToFile(CURRENT_FILE, image, size);
-  display_show_image(image, size, true);
+  if (!filesystem_file_rename(path, CURRENT_FILE)) writeImageToFile(CURRENT_FILE, image, size);
+  display_show_image(image, size, true); // flips the bitmap in place; the file is already written
   free(image);
 
   putInt(prefs, KEY_CUR, view);
@@ -78,13 +95,16 @@ bool tideShowStored(Preferences &prefs, int view) {
 // Stream one screen into its flash file. The old file goes first, so a full partition still has room.
 static bool writeScreen(WiFiClient *stream, int view) {
   const char *path = tideSlotPath(view);
-  LittleFS.remove(path);
-  if (LittleFS.totalBytes() - LittleFS.usedBytes() < TIDE_BMP_SIZE + 2 * 4096) {
-    Log_error("tide: no room in flash for %s", path);
+  filesystem_file_delete(path);
+  if (filesystem_total_bytes() - filesystem_used_bytes() < TIDE_BMP_SIZE + 2 * 4096) {
+    logSpace("no room for", path);
     return false;
   }
-  File file = LittleFS.open(path, FILE_WRITE);
-  if (!file) return false;
+  File file = filesystem_open_for_write(path);
+  if (!file) {
+    logSpace("can't open", path);
+    return false;
+  }
   static uint8_t chunk[1024]; // off the loop task's stack, which the TLS read already uses heavily
   size_t left = TIDE_BMP_SIZE;
   uint32_t start = millis();
@@ -101,8 +121,8 @@ static bool writeScreen(WiFiClient *stream, int view) {
   }
   file.close();
   if (left > 0) {
-    LittleFS.remove(path);
-    Log_error("tide: %s cut short, %u bytes missing", path, (unsigned)left);
+    filesystem_file_delete(path);
+    logSpace("cut short", path);
     return false;
   }
   return true;
@@ -115,6 +135,9 @@ void tideFetchScreens(Preferences &prefs, const String &tideJson) {
   // every check-in.
   if (prefs.getString(KEY_CACHE_TRY, "") == t.cacheId) return;
   prefs.putString(KEY_CACHE_TRY, t.cacheId);
+  // The screen this check-in shows is about to live in /current.bmp; its old file would only make
+  // a fourth copy while the other two download.
+  filesystem_file_delete(tideSlotPath(t.view));
 
   uint32_t start = millis();
   bool ok = withHttp(t.cacheUrl, [&](HTTPClient *http, HttpError error) -> bool {
@@ -143,6 +166,7 @@ void tideNewCurrent(Preferences &prefs, const String &tideJson) {
   if (!t.present) return;
   int cur = prefs.getInt(KEY_CUR, -1);
   if (cur != t.view) keepCurrent(prefs, cur); // the same screen redrawn simply replaces itself
+  filesystem_file_delete(tideSlotPath(t.view)); // /current.bmp is about to hold this screen
   putInt(prefs, KEY_CUR, t.view);
   putUInt(prefs, KEY_CUR_EXP, t.expires);
   for (int i = 0; i < TIDE_VIEWS; i++)
